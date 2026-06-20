@@ -1,9 +1,17 @@
-"""Download the HF writing dataset, render conversations, tokenize, and write
-train.bin / val.bin token shards.
+"""Tokenize training conversations into train.bin / val.bin token shards.
 
-    python prepare_data.py --max-rows 3000
+Sources (combined, then document-shuffled so domains interleave):
+  - the local thriller/horror corpus built by datagen (data_cache/thriller_corpus.jsonl)
+  - optionally the HF Opus_WritingStruct dataset, for general writing fluency
 
-Streams the JSONL so it never loads the whole file into memory.
+    # thriller corpus + a little general data (default):
+    python prepare_data.py
+
+    # only the scraped thriller/horror corpus:
+    python prepare_data.py --no-hf
+
+    # original behaviour (HF only):
+    python prepare_data.py --no-local --max-rows 3000
 """
 from __future__ import annotations
 
@@ -14,7 +22,6 @@ import sys
 
 import numpy as np
 
-# UTF-8 stdout so progress printing never crashes on the Windows cp1252 console.
 try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
@@ -27,24 +34,29 @@ from config import DATA_DIR
 from data import split_path
 
 DATASET_URL = "hf://datasets/Nopm/Opus_WritingStruct/claude_dataset.jsonl"
+DEFAULT_LOCAL = os.path.join(DATA_DIR, "thriller_corpus.jsonl")
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default=DATASET_URL)
-    ap.add_argument("--max-rows", type=int, default=3000,
-                    help="cap the number of conversations (keeps the CPU demo fast)")
-    ap.add_argument("--val-frac", type=float, default=0.05)
-    ap.add_argument("--min-chars", type=int, default=40,
-                    help="skip trivially short conversations")
-    args = ap.parse_args()
+def docs_from_local(path: str, min_chars: int) -> list[list[int]]:
+    docs = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            messages = obj.get("messages")
+            if not messages:
+                continue
+            if len(tok.render_conversation(messages)) < min_chars:
+                continue
+            docs.append(tok.encode_conversation(messages))
+    return docs
 
-    os.makedirs(DATA_DIR, exist_ok=True)
-    print(f"Streaming {args.url} (max {args.max_rows} rows)...")
 
-    all_ids: list[int] = []
-    rows = 0
-    with fsspec.open(args.url, "r", encoding="utf-8") as f:
+def docs_from_hf(url: str, max_rows: int, min_chars: int) -> list[list[int]]:
+    docs = []
+    with fsspec.open(url, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -54,30 +66,63 @@ def main():
             except json.JSONDecodeError:
                 continue
             messages = obj.get("messages")
-            if not messages:
+            if not messages or len(tok.render_conversation(messages)) < min_chars:
                 continue
-            text = tok.render_conversation(messages)
-            if len(text) < args.min_chars:
-                continue
-            all_ids.extend(tok.encode_conversation(messages))
-            rows += 1
-            if rows % 250 == 0:
-                print(f"  {rows} rows -> {len(all_ids):,} tokens")
-            if rows >= args.max_rows:
+            docs.append(tok.encode_conversation(messages))
+            if len(docs) >= max_rows:
                 break
+    return docs
 
-    if not all_ids:
-        raise SystemExit("No data parsed -- check the dataset URL / schema.")
 
-    ids = np.asarray(all_ids, dtype=np.uint16)
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", default=DATASET_URL)
+    ap.add_argument("--local", default=DEFAULT_LOCAL, help="local corpus JSONL ({messages:[...]})")
+    ap.add_argument("--no-local", action="store_true", help="ignore the local thriller corpus")
+    ap.add_argument("--no-hf", action="store_true", help="ignore the HF dataset")
+    ap.add_argument("--max-rows", type=int, default=1200,
+                    help="cap on HF conversations to mix in (0 to skip)")
+    ap.add_argument("--val-frac", type=float, default=0.05)
+    ap.add_argument("--min-chars", type=int, default=40)
+    ap.add_argument("--seed", type=int, default=1337)
+    args = ap.parse_args()
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    docs: list[list[int]] = []
+    counts = {}
+
+    if not args.no_local and os.path.exists(args.local):
+        print(f"Loading local corpus {args.local} ...")
+        local_docs = docs_from_local(args.local, args.min_chars)
+        docs += local_docs
+        counts["local"] = len(local_docs)
+        print(f"  {len(local_docs)} local documents")
+
+    if not args.no_hf and args.max_rows > 0:
+        print(f"Streaming HF {args.url} (max {args.max_rows}) ...")
+        hf_docs = docs_from_hf(args.url, args.max_rows, args.min_chars)
+        docs += hf_docs
+        counts["hf"] = len(hf_docs)
+        print(f"  {len(hf_docs)} HF documents")
+
+    if not docs:
+        raise SystemExit("No documents collected. Run datagen.build_corpus first, or pass --max-rows.")
+
+    # Shuffle at the document level so thriller plots and general data interleave.
+    rng = np.random.default_rng(args.seed)
+    rng.shuffle(docs)
+
+    ids = np.fromiter((t for d in docs for t in d), dtype=np.uint16)
     n_val = int(len(ids) * args.val_frac)
-    train_ids, val_ids = ids[:-n_val] if n_val else ids, ids[-n_val:] if n_val else ids[:0]
+    train_ids = ids[:-n_val] if n_val else ids
+    val_ids = ids[-n_val:] if n_val else ids[:0]
 
     train_ids.tofile(split_path("train"))
     val_ids.tofile(split_path("val"))
 
     meta = {
-        "rows": rows,
+        "documents": len(docs),
+        "sources": counts,
         "total_tokens": int(len(ids)),
         "train_tokens": int(len(train_ids)),
         "val_tokens": int(len(val_ids)),
@@ -86,9 +131,8 @@ def main():
     with open(os.path.join(DATA_DIR, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
-    print(f"Done. {rows} rows, {len(ids):,} tokens "
+    print(f"Done. {len(docs)} docs ({counts}), {len(ids):,} tokens "
           f"(train={len(train_ids):,}, val={len(val_ids):,})")
-    print(f"Wrote {split_path('train')} and {split_path('val')}")
 
 
 if __name__ == "__main__":
