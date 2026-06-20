@@ -3,11 +3,12 @@ import { api } from './api'
 import StoryCard from './components/StoryCard'
 import MonitorPanel from './components/MonitorPanel'
 
+// Story openings — the model continues whatever you write.
 const PRESETS = [
-  'Write a thriller about a missed train.',
-  'A detective receives a letter she wrote to herself.',
-  'The elevator stopped between floors, and so did time.',
-  'Write a tense scene set in a lighthouse at midnight.',
+  'The detective found the second body before dawn.',
+  'No one believed her about the house on Marrow Street.',
+  'The last train had left, but someone was still on the platform.',
+  'It was the third night the lighthouse went dark.',
 ]
 
 export default function App() {
@@ -116,7 +117,7 @@ export default function App() {
               className="h-24 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-sm outline-none focus:border-red-500"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe the thriller you want…"
+              placeholder="Start your thriller with an opening line… the model continues it."
             />
             <div className="mt-2 flex flex-wrap gap-1">
               {PRESETS.map((p) => (

@@ -32,25 +32,42 @@ import fsspec
 import tokenizer as tok
 from config import DATA_DIR
 from data import split_path
+from textclean import clean_story_text
 
 DATASET_URL = "hf://datasets/Nopm/Opus_WritingStruct/claude_dataset.jsonl"
 DEFAULT_LOCAL = os.path.join(DATA_DIR, "thriller_corpus.jsonl")
 
 
 def docs_from_local(path: str, min_chars: int) -> list[list[int]]:
+    """Story-mode: train on cleaned plot/episode PROSE only (the assistant turn),
+    with NO instruction scaffolding. A tiny model otherwise overfits to the few
+    repeated prompt templates instead of learning to write stories."""
     docs = []
+    seen = set()
+    dropped = 0
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             obj = json.loads(line)
-            messages = obj.get("messages")
-            if not messages:
+            messages = obj.get("messages") or []
+            story = ""
+            for m in messages:
+                if m.get("role") == "assistant":
+                    story = m.get("content") or ""
+            story = clean_story_text(story)
+            if len(story) < min_chars:
+                dropped += 1
                 continue
-            if len(tok.render_conversation(messages)) < min_chars:
+            key = story[:200]
+            if key in seen:                 # drop near-duplicates
+                dropped += 1
                 continue
-            docs.append(tok.encode_conversation(messages))
+            seen.add(key)
+            docs.append(tok.encode_ordinary(story) + [tok.EOT])
+    if dropped:
+        print(f"  (cleaned/deduped: dropped {dropped} short/duplicate docs)")
     return docs
 
 
@@ -80,10 +97,10 @@ def main():
     ap.add_argument("--local", default=DEFAULT_LOCAL, help="local corpus JSONL ({messages:[...]})")
     ap.add_argument("--no-local", action="store_true", help="ignore the local thriller corpus")
     ap.add_argument("--no-hf", action="store_true", help="ignore the HF dataset")
-    ap.add_argument("--max-rows", type=int, default=1200,
-                    help="cap on HF conversations to mix in (0 to skip)")
+    ap.add_argument("--max-rows", type=int, default=0,
+                    help="cap on HF conversations to mix in (default 0: pure story prose)")
     ap.add_argument("--val-frac", type=float, default=0.05)
-    ap.add_argument("--min-chars", type=int, default=40)
+    ap.add_argument("--min-chars", type=int, default=120)
     ap.add_argument("--seed", type=int, default=1337)
     args = ap.parse_args()
 

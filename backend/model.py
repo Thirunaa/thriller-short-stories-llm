@@ -98,6 +98,14 @@ class MiniGPT(nnx.Module):
         the full forward, which is the dominant cost during autoregressive decoding."""
         return self._project(self.hidden(idx)[:, -1, :])
 
+    def logits_at(self, idx, pos):
+        """Logits at an arbitrary position `pos` (dynamic) -> (B, vocab). Lets us
+        right-pad a fixed (1, block_size) buffer and read the last *real* token, so
+        the prompt keeps correct positional indices and padding is ignored by the
+        causal mask (positions > pos are never attended)."""
+        h = self.hidden(idx)
+        return self._project(jnp.take(h, pos, axis=1))
+
 
 def build_model(cfg: ModelConfig, seed: int = 0) -> MiniGPT:
     return MiniGPT(cfg, rngs=nnx.Rngs(seed))

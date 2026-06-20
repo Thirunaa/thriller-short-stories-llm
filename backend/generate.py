@@ -9,6 +9,7 @@ an over-eager EOT so short prompts still produce a story.
 """
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
 import numpy as np
@@ -24,12 +25,18 @@ _MIN_TOKENS = 12
 
 
 @nnx.jit
-def _logits_last(model: MiniGPT, idx):
-    return model.logits_last(idx)            # (1, vocab)
+def _logits_at(model: MiniGPT, idx, pos):
+    return model.logits_at(idx, pos)         # (1, vocab) at position `pos`
 
 
 def _sample(logits: np.ndarray, temperature: float, top_k: Optional[int],
-            rng: np.random.Generator) -> int:
+            rng: np.random.Generator, recent_ids=None, rep_penalty: float = 1.3) -> int:
+    # Repetition penalty: damp tokens generated recently. This is what stops a tiny,
+    # undertrained model from collapsing into "the the the" / newline-spam loops.
+    if rep_penalty and rep_penalty != 1.0 and recent_ids:
+        for tid in set(recent_ids):
+            v = logits[tid]
+            logits[tid] = v / rep_penalty if v > 0 else v * rep_penalty
     if temperature <= 0:
         return int(np.argmax(logits))
     logits = logits / temperature
@@ -59,21 +66,35 @@ def generate_ids(
     block_size = model.cfg.block_size
     rng = np.random.default_rng(seed)
 
-    window = ([tok.EOT] * block_size + list(prompt_ids))[-block_size:]
-    idx = jax.numpy.asarray(window, dtype=jax.numpy.int32)[None, :]
+    # Right-padded fixed buffer: prompt at positions 0..L-1 (correct positional
+    # indices); the causal mask ignores the padding to the right of `pos`.
+    ids = list(prompt_ids)[-block_size:] or [tok.EOT]
+    buf = np.zeros(block_size, dtype=np.int32)
+    buf[: len(ids)] = ids
+    pos = len(ids) - 1                       # index of the last real token
 
+    recent = list(ids[-48:])
     generated: List[int] = []
     for _ in range(max_new_tokens):
-        logits = np.array(_logits_last(model, idx)[0], dtype=np.float32)  # copy -> writable
+        idx = jax.numpy.asarray(buf)[None, :]
+        logits = np.array(
+            _logits_at(model, idx, jax.numpy.asarray(pos, dtype=jax.numpy.int32))[0],
+            dtype=np.float32,
+        )
         logits[tok.REAL_VOCAB:] = -np.inf                     # never emit padded ids
         if not (stop_at_eot and len(generated) >= _MIN_TOKENS):
             logits[tok.EOT] = -np.inf                          # suppress early EOT
-        tid = _sample(logits, temperature, top_k, rng)
+        tid = _sample(logits, temperature, top_k, rng, recent_ids=recent[-48:])
         if stop_at_eot and tid == tok.EOT:
             break
         generated.append(tid)
-        next_id = jax.numpy.asarray([[tid]], dtype=jax.numpy.int32)
-        idx = jax.numpy.concatenate([idx[:, 1:], next_id], axis=1)
+        recent.append(tid)
+        if pos < block_size - 1:
+            pos += 1
+            buf[pos] = tid
+        else:
+            buf = np.roll(buf, -1)            # buffer full -> slide window left
+            buf[-1] = tid
     return generated
 
 
@@ -85,6 +106,11 @@ def generate_text(
     top_k: Optional[int] = 40,
     seed: int = 0,
 ) -> str:
-    prompt_ids = tok.encode_prompt(user_text)
-    new_ids = generate_ids(model, prompt_ids, max_new_tokens, temperature, top_k, seed)
-    return tok.decode(new_ids).strip()
+    """Story-mode generation: the user's text is the opening of the story, which
+    the model continues. Returns the full story (seed + continuation)."""
+    seed_ids = tok.encode_ordinary(user_text.strip())
+    new_ids = generate_ids(model, seed_ids, max_new_tokens, temperature, top_k, seed)
+    text = tok.decode(seed_ids + new_ids)
+    text = re.sub(r"\n{3,}", "\n\n", text)        # collapse newline spam
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()

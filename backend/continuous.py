@@ -106,7 +106,13 @@ class ContinuousTrainer:
         # Fresh copy of the served weights so we never mutate the live model mid-request.
         model, cfg, _ = base_ck.restore()
 
-        tokens = data.tokens_from_conversations([s["messages"] for s in samples])
+        # Story-mode: fine-tune on the raw preferred-story prose (assistant turn).
+        texts = []
+        for s in samples:
+            for m in s["messages"]:
+                if m.get("role") == "assistant" and (m.get("content") or "").strip():
+                    texts.append(m["content"])
+        tokens = data.tokens_from_texts(texts)
         block_size = min(cfg.block_size, max(16, len(tokens) // 4))
         if len(tokens) < block_size + 2:
             return {"status": "insufficient_tokens", "tokens": int(len(tokens)), "at": time.time()}

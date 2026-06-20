@@ -40,3 +40,13 @@ def tokens_from_conversations(conversations: List[List[Dict[str, str]]]) -> np.n
     for messages in conversations:
         ids.extend(tok.encode_conversation(messages))
     return np.asarray(ids, dtype=np.uint16)
+
+
+def tokens_from_texts(texts: List[str]) -> np.ndarray:
+    """Story-mode: raw prose documents (EOT-separated) for fine-tuning."""
+    ids: List[int] = []
+    for t in texts:
+        t = (t or "").strip()
+        if t:
+            ids.extend(tok.encode_ordinary(t) + [tok.EOT])
+    return np.asarray(ids, dtype=np.uint16)

@@ -31,9 +31,9 @@ class ModelConfig:
     # 50257 real gpt2 tokens, padded up to a multiple of 64 for matmul efficiency.
     vocab_size: int = 50304
     block_size: int = 128          # context length
-    n_layer: int = 4
-    n_head: int = 4
-    n_embd: int = 128
+    n_layer: int = 6
+    n_head: int = 7
+    n_embd: int = 224              # ~14.9M params total (tied embedding dominates)
     dropout: float = 0.1
     bias: bool = False             # bias in Linear / LayerNorm
     tie_weights: bool = True       # share token embedding with the output head
