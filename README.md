@@ -120,6 +120,45 @@ via WSL2/Linux with a CUDA build of JAX), bump `n_layer/n_embd/block_size` and
 
 ---
 
+## Training data
+
+Two corpora under `data_cache/` (gitignored; regenerate with the scripts below):
+
+- **Plot corpus** — best thriller/horror movies + series episodes (IMDb-ranked,
+  CMU/Wikipedia plots). Build with `python -m datagen.build_corpus`.
+- **Prose corpus** — public-domain thriller/horror/mystery classics from Project
+  Gutenberg (Dracula, Sherlock Holmes, Poe, Jekyll & Hyde, The Moonstone, …).
+  Build with `python -m datagen.gutenberg`. This is the **grammar/style teacher** —
+  plot summaries are telegraphic, real narrative prose is not.
+
+`prepare_data.py` tokenizes every `*_corpus.jsonl` it finds (document-shuffled) as a
+pure story LM (no chat scaffolding). ~5M tokens combined.
+
+## Scaling up on GPU (WSL2)
+
+Native-Windows JAX is CPU-only. For real quality, train on an NVIDIA GPU via WSL2:
+
+```bash
+wsl --install -d Ubuntu-24.04                 # one-time
+# inside WSL (Ubuntu):
+python3 -m venv ~/llm-venv
+~/llm-venv/bin/pip install "jax[cuda12]" flax optax orbax-checkpoint tiktoken \
+    numpy pandas fastapi "uvicorn[standard]" python-multipart
+cd /mnt/c/.../backend
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.8
+# ~34M params, context 512, on the GPU (~10 min vs ~hours on CPU):
+~/llm-venv/bin/python train.py --n-embd 384 --n-layer 8 --n-head 6 \
+    --block-size 512 --dropout 0.2 --batch-size 8 --max-iters 6000 --eval-interval 500
+# serve it (WSL2 forwards localhost:8000 to Windows, so the Vite proxy still works):
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.5 ~/llm-venv/bin/python server.py
+```
+
+Measured on an RTX 5090 (Blackwell): **~58× faster** training than CPU; the 34M /
+context-512 model on the combined corpus reaches **val ≈ 5.06** (perplexity ~158 vs
+the 15M CPU model's ~425) and writes fluent, dialogue-rich thriller prose.
+
+---
+
 ## API
 
 | Method | Route | Purpose |

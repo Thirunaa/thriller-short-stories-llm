@@ -108,12 +108,18 @@ def main():
     docs: list[list[int]] = []
     counts = {}
 
-    if not args.no_local and os.path.exists(args.local):
-        print(f"Loading local corpus {args.local} ...")
-        local_docs = docs_from_local(args.local, args.min_chars)
-        docs += local_docs
-        counts["local"] = len(local_docs)
-        print(f"  {len(local_docs)} local documents")
+    if not args.no_local:
+        import glob
+        corpus_files = ([args.local] if args.local != DEFAULT_LOCAL
+                        else sorted(glob.glob(os.path.join(DATA_DIR, "*_corpus.jsonl"))))
+        for path in corpus_files:
+            if not os.path.exists(path):
+                continue
+            print(f"Loading local corpus {os.path.basename(path)} ...")
+            local_docs = docs_from_local(path, args.min_chars)
+            docs += local_docs
+            counts[os.path.basename(path)] = len(local_docs)
+            print(f"  {len(local_docs)} documents")
 
     if not args.no_hf and args.max_rows > 0:
         print(f"Streaming HF {args.url} (max {args.max_rows}) ...")

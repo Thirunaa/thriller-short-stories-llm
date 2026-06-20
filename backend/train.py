@@ -120,6 +120,7 @@ def main():
     ap.add_argument("--n-head", type=int, default=ModelConfig.n_head)
     ap.add_argument("--n-embd", type=int, default=ModelConfig.n_embd)
     ap.add_argument("--block-size", type=int, default=ModelConfig.block_size)
+    ap.add_argument("--dropout", type=float, default=ModelConfig.dropout)
     ap.add_argument("--batch-size", type=int, default=TrainConfig.batch_size)
     ap.add_argument("--max-iters", type=int, default=TrainConfig.max_iters)
     ap.add_argument("--lr", type=float, default=TrainConfig.learning_rate)
@@ -132,6 +133,7 @@ def main():
 
     cfg = ModelConfig(
         n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd, block_size=args.block_size,
+        dropout=args.dropout,
     )
     tcfg = TrainConfig(
         batch_size=args.batch_size, block_size=args.block_size, learning_rate=args.lr,
