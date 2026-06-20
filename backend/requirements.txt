@@ -1,0 +1,13 @@
+# JAX MiniGPT backend (CPU). For GPU, install jax with a CUDA build instead of jax[cpu].
+jax[cpu]>=0.10
+flax>=0.12
+optax>=0.2
+orbax-checkpoint>=0.11
+tiktoken>=0.7
+numpy>=1.26
+pandas>=2.0
+huggingface_hub>=0.23
+fsspec>=2024.2
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
