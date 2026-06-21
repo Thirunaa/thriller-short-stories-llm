@@ -5,10 +5,10 @@ import MonitorPanel from './components/MonitorPanel'
 
 // Story openings — the model continues whatever you write.
 const PRESETS = [
-  'The detective found the second body before dawn.',
-  'No one believed her about the house on Marrow Street.',
-  'The last train had left, but someone was still on the platform.',
-  'It was the third night the lighthouse went dark.',
+  'Once upon a time, in a quiet little town,',
+  'The old house at the end of the street held a secret.',
+  'A curious child discovered a hidden door in the garden.',
+  'On a dark and stormy night, something stirred in the woods.',
 ]
 
 export default function App() {

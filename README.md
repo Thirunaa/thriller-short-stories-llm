@@ -134,6 +134,12 @@ Two corpora under `data_cache/` (gitignored; regenerate with the scripts below):
 `prepare_data.py` tokenizes every `*_corpus.jsonl` it finds (document-shuffled) as a
 pure story LM (no chat scaffolding). ~5M tokens combined.
 
+- **TinyStories** (`prepare_tinystories.py`) — for *cohesive* writing, the best signal
+  for a small model is [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories)
+  (clean GPT-4-written short stories). Streams ~100M tokens + a light thriller mix.
+  A 51M model trained on this reaches **val ≈ 1.86 (perplexity ~6.4)** and writes
+  fully coherent, grammatical stories — at the cost of TinyStories' gentle style.
+
 ## Scaling up on GPU (WSL2)
 
 Native-Windows JAX is CPU-only. For real quality, train on an NVIDIA GPU via WSL2:
