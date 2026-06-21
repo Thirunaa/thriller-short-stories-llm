@@ -1,11 +1,12 @@
-"""Autoregressive sampling from a MiniGPT, with temperature + top-k.
+"""Autoregressive sampling from a MiniGPT, with temperature + top-k + rep-penalty.
 
-Speed: the per-token forward is JIT-compiled and projects logits for ONLY the last
-position (the 50k-vocab head, otherwise computed over every position, dominates the
-cost). It runs on a fixed (1, block_size) window (left-padded with the EOT document
-separator) so it compiles once and reuses the kernel every step. Sampling happens
-host-side in numpy, which is cheap on a single (vocab,) vector and lets us suppress
-an over-eager EOT so short prompts still produce a story.
+Speed/correctness: the per-token forward is JIT-compiled on a fixed (1, block_size)
+buffer with the prompt RIGHT-padded (tokens at positions 0..L-1, padding to the
+right). `model.logits_at(idx, pos)` reads logits at the last *real* position, so the
+prompt keeps correct positional indices and the causal mask ignores the padding.
+This compiles once and computes only the last position's 50k-wide head (the dominant
+cost). Sampling happens host-side in numpy, which is cheap on one (vocab,) vector and
+lets us apply a repetition penalty and suppress an over-eager EOT.
 """
 from __future__ import annotations
 
